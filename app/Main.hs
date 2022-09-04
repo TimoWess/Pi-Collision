@@ -4,9 +4,11 @@ import Control.Monad (unless, when)
 
 main :: IO ()
 main = do
-    let b1 = fromXWMV 100 50 1 0
-        b2 = fromXWMV 300 150 100000 (-5)
-    update b1 b2 0 0
+    let digits = 5
+        steps = 10000
+        b1 = fromXWMV 100 50 1 0
+        b2 = fromXWMV 300 150 (100 ^ digits) (-(5 / steps))
+    update b1 b2 0
 
 data Block =
     Block Double Double Double Double
@@ -24,36 +26,43 @@ getX (Block x _ _ _) = x
 getW :: Block -> Double
 getW (Block _ w _ _) = w
 
-updateX :: Block -> Block
-updateX (Block x w m v) = Block (x + v) w m v
+updatePosition :: Block -> Block
+updatePosition (Block x w m v) = Block (x + v) w m v
+
+reverseVelocity :: Block -> Block
+reverseVelocity (Block x w m v) = Block x w m (-v)
 
 colliding :: Block -> Block -> Bool
 colliding (Block x1 w1 _ _) (Block x2 w2 _ _) =
     not $ x1 + w1 < x2 || x1 > x2 + w2
 
 bounce :: Block -> Block -> (Block, Block)
-bounce b1@(Block x1 w1 m1 v1) b2@(Block x2 w2 m2 v2) =
-    (fromXWMV x1 w1 m1 n1, fromXWMV x2 w2 m2 n2)
+bounce b1@(Block x1 w1 ma va) b2@(Block x2 w2 mb vb) =
+    (fromXWMV x1 w1 ma n1, fromXWMV x2 w2 mb n2)
   where
-    sumM = m1 + m2
-    n1 = (m1 - m2) / sumM * v1 + (2 * m2 / sumM) * v2
-    n2 = (2 * m1 / sumM) * v1 + (m2 - m1) / sumM * v2
+    sumM = ma + mb
+    n1 = ((ma - mb) / sumM) * va + ((2 * mb) / sumM) * vb
+    n2 = ((2 * ma) / sumM) * va + ((mb - ma) / sumM) * vb
 
-update :: Block -> Block -> Integer -> Integer -> IO ()
-update b1 b2 col times
-    -- putStrLn $ unlines [show b1, show b2]
- = do
-    let newB1@(Block x1 w1 m1 v1) = updateX b1
-        newB2@(Block x2 w2 m2 v2) = updateX b2
-    putStrLn $ unlines [show v1, show v2]
-    putStrLn $ unlines [show x1, show x2]
-    -- when (times > 10000) $ error (show col)
-    if (v1 > 0 && v2 > 0 && v2 > v1)
-        then print col
-        else if (x1 < 0)
-                 then update (fromXWMV 0 w1 m1 (-v1)) newB2 (col + 1) (0)
-                 else if colliding newB1 newB2
-                          then do
-                              let (t1, t2) = bounce newB1 newB2
-                              update t1 t2 (col + 1) (0)
-                          else update newB1 newB2 col (times + 1)
+update :: Block -> Block -> Integer -> IO ()
+update b1 b2 col = do
+    let areColliding = colliding b1 b2
+        (t1@(Block x1 _ _ v1), t2@(Block x2 w2 _ v2)) =
+            if areColliding
+                then bounce b1 b2
+                else (b1, b2)
+        hitWall = x1 < 0
+        newCol = col + boolToInteger areColliding + boolToInteger hitWall
+        newB1 =
+            updatePosition
+                (if hitWall
+                     then reverseVelocity t1
+                     else t1)
+        newB2 = updatePosition t2
+    when (x1 > x2 + w2) $ error "Left block on the wrong side"
+    if (v1 >= 0 && v2 >= 0 && v2 >= v1)
+        then print newCol
+        else update newB1 newB2 newCol
+
+boolToInteger :: Bool -> Integer
+boolToInteger = toInteger . fromEnum
